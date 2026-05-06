@@ -5,13 +5,43 @@
   <link rel="icon" href="{{ url_for('static', filename='icon256.ico') }}" type="image/x-icon">
   <link rel="shortcut icon" href="{{ url_for('static', filename='icon256.ico') }}" type="image/x-icon">
   <script src="{{ url_for('static', filename='tailwind.js') }}"></script>
+  <style>
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    .status-connected {
+      background-color: #10b981;
+      box-shadow: 0 0 8px #10b981;
+    }
+    .status-disconnected {
+      background-color: #ef4444;
+    }
+    .status-checking {
+      background-color: #f59e0b;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
   <div class="max-w-5xl mx-auto p-6 space-y-6">
     <h1 class="text-3xl font-bold">Launchpad Companion WebGUI</h1>
 
     <section class="bg-white shadow rounded-lg p-5 space-y-4">
-      <h2 class="text-xl font-semibold">Bitfocus Companion</h2>
+      <div class="flex justify-between items-center">
+        <h2 class="text-xl font-semibold">Bitfocus Companion</h2>
+        <div class="flex items-center text-sm">
+          <span class="status-indicator status-checking" id="companion-status"></span>
+          <span id="companion-status-text">Checking...</span>
+        </div>
+      </div>
       <form class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end" method="post" action="{{ url_for('update_companion') }}">
         <label class="flex flex-col text-sm font-medium text-gray-700">IP
           <input class="mt-1 border rounded px-3 py-2" name="ip" value="{{ companion_ip }}" required>
@@ -51,6 +81,7 @@
               <th class="px-3 py-2 text-left font-semibold">Device</th>
               <th class="px-3 py-2 text-left font-semibold">IN Port</th>
               <th class="px-3 py-2 text-left font-semibold">OUT Port</th>
+              <th class="px-3 py-2 text-left font-semibold">Grid</th>
               <th class="px-3 py-2 text-left font-semibold">Actions</th>
             </tr>
           </thead>
@@ -62,6 +93,9 @@
               <td class="px-3 py-2">{{ c.device_type.__name__ if c.device_type else "N/A" }}</td>
               <td class="px-3 py-2">{{ c.port_in or "—" }}</td>
               <td class="px-3 py-2">{{ c.port_out or "—" }}</td>
+              <td class="px-3 py-2">
+                <a href="{{ url_for('grid_view', page=c.page) }}" target="_blank" class="inline-block h-9 bg-green-600 text-white rounded px-3 hover:bg-green-700 leading-9">View Grid</a>
+              </td>
               <td class="px-3 py-2 space-y-2">
                 <form class="flex flex-wrap gap-2 items-end" method="post" action="{{ url_for('update_connection') }}">
                   <input type="hidden" name="name" value="{{ c.name }}">
@@ -133,6 +167,33 @@
       <p class="text-sm text-gray-700">Available OUT: {{ midi_out }}</p>
     </section>
   </div>
+
+  <script>
+    async function checkCompanionStatus() {
+      try {
+        const response = await fetch('/api/companion/status');
+        const data = await response.json();
+        const indicator = document.getElementById('companion-status');
+        const text = document.getElementById('companion-status-text');
+
+        if (data.connected) {
+          indicator.className = 'status-indicator status-connected';
+          text.textContent = `Connected to ${data.ip}:${data.port}`;
+        } else {
+          indicator.className = 'status-indicator status-disconnected';
+          text.textContent = `Disconnected (${data.ip}:${data.port})`;
+        }
+      } catch (error) {
+        const indicator = document.getElementById('companion-status');
+        const text = document.getElementById('companion-status-text');
+        indicator.className = 'status-indicator status-disconnected';
+        text.textContent = 'Error checking status';
+      }
+    }
+
+    checkCompanionStatus();
+    setInterval(checkCompanionStatus, 3000);
+  </script>
 </body>
 </html>
 

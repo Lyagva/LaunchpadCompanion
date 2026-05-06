@@ -9,6 +9,7 @@ from PIL import Image
 from typing import Optional, Callable
 import midi
 import connections_registry
+import grid_state
 
 
 class CompanionWebSocket:
@@ -155,6 +156,9 @@ class Companion:
         """Handle received button image - read bottom-right pixel."""
         width, height = img.size
         pixel = img.getpixel((width - 1, height - 1))
+
+        # Update grid state for WebSocket broadcasting
+        grid_state.update_button(page, row, col, pixel)
 
         # IMPORTANT: do not iterate over a mutable global list across threads.
         for conn in midi.snapshot_connections():

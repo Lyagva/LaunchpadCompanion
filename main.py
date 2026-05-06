@@ -1,11 +1,13 @@
 from flask import Flask, request, redirect, url_for, render_template
-import midi, launchpads, companion
+from flask_socketio import SocketIO, emit
+import midi, launchpads, companion, grid_state
 import os
 import threading
 import webbrowser
 
 app = Flask(__name__)
 app.secret_key = "launchpad-companion-ui"
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 DEVICE_TYPES = {
     "MiniMK3": launchpads.MiniMK3,
@@ -32,6 +34,20 @@ def index():
         midi_out=midi.DEVICES.get_out(),
         device_types=DEVICE_TYPES.keys()
     )
+
+@app.route("/grid", methods=["GET"])
+def grid_view():
+    page = int(request.args.get("page", "1"))
+    return render_template("grid.html", page=page)
+
+@app.route("/api/companion/status", methods=["GET"])
+def companion_status():
+    """Check if Companion WebSocket is connected."""
+    is_connected = (companion.COMPANION._ws_client is not None and
+                   companion.COMPANION._ws_client._running and
+                   companion.COMPANION._ws_client._ws is not None and
+                   not companion.COMPANION._ws_client._ws.closed)
+    return {"connected": is_connected, "ip": companion.COMPANION.ip, "port": companion.COMPANION.port}
 
 @app.post("/companion")
 def update_companion():
@@ -128,8 +144,43 @@ def exit_program():
     threading.Thread(target=_shutdown, daemon=True).start()
     return redirect(url_for("index"))
 
+def _broadcast_grid_update(page: int, row: int, col: int, color: tuple):
+    """Broadcast grid updates to WebSocket clients."""
+    try:
+        socketio.emit('button_update', {
+            'page': page,
+            'row': row,
+            'col': col,
+            'color': {'r': color[0], 'g': color[1], 'b': color[2]}
+        })
+    except Exception as e:
+        print(f"[WebSocket] Broadcast error: {e}")
+
+@socketio.on('connect')
+def handle_connect():
+    """Send current grid state when client connects."""
+    try:
+        page = 1
+        state = grid_state.get_grid_state(page)
+        emit('grid_state', {'page': page, 'buttons': state})
+    except Exception as e:
+        print(f"[WebSocket] Connect error: {e}")
+        emit('error', {'message': 'Failed to load grid state'})
+
+@socketio.on('request_grid')
+def handle_request_grid(data):
+    """Send grid state for a specific page."""
+    try:
+        page = data.get('page', 1)
+        state = grid_state.get_grid_state(page)
+        emit('grid_state', {'page': page, 'buttons': state})
+    except Exception as e:
+        print(f"[WebSocket] Request grid error: {e}")
+        emit('error', {'message': 'Failed to load grid state'})
+
 if __name__ == "__main__":
     midi.DEVICES.update()
     _ensure_companion()
+    grid_state.set_broadcast_callback(_broadcast_grid_update)
     webbrowser.open("http://127.0.0.1:5000")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
